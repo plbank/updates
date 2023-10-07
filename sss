@@ -1,0 +1,11 @@
+shutil.copytree(os.path.join(application_path, "update", 'tmp'), application_path, ignore=shutil.ignore_patterns("update-check.exe",), dirs_exist_ok=True)  # update/tmp에 압축해제된 데이터를 루트에 복사하며, update-check.exe는 복사하지 않음
+
+# 새로운 버전을 입력해 줌
+with open(os.path.join(application_path, "version"), "w") as f:
+    f.write(str(res["assets"][0]["id"]))
+
+shutil.rmtree(os.path.join(application_path, "update"))  # 업데이트 임시 폴더 삭제
+
+print(datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"), "업데이트 완료")
+
+os.startfile(os.path.join(application_path, "MAIN.exe"))  # 업데이트 완료 후 메인 프로그램을 다시 실행시켜줌
