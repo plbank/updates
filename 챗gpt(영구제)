@@ -1,0 +1,248 @@
+import openai
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from PyQt5.QtWidgets import *
+from PyQt5 import uic
+import time
+import pyautogui
+import pyperclip
+import sys
+from datetime import datetime
+
+# pyqt 부분
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 변경사항
+UI_PATH = "로그인.ui"
+UI_PATH2 = "챗gpt(영구제).ui"
+
+
+# 변경사항
+# 로그인 접속 아이디 리스트
+login_dict = {"lsy341" : "thtk6738"}
+
+
+
+
+class second(QDialog):
+    # 메인 프로그램 넣을 자리
+    def __init__(self):
+        # 유효기간 변수 불러오기
+
+        QDialog.__init__(self, None)
+        uic.loadUi(os.path.join(BASE_DIR, UI_PATH2), self)
+
+
+        # 1) 버튼 클릭 이벤트
+        # self.객체이름.clicked.connect(self.실행함수이름)
+        self.start_btn.clicked.connect(self.main)
+        self.reset_btn.clicked.connect(self.reset)
+        self.close_btn.clicked.connect(self.close)
+        
+
+    def main(self):
+
+        self.status.setText("")
+        self.textBrowser.setText("")
+
+        blogs_url = self.blogs_url.text().split(",")
+        file_names = self.file_name.text().split(",")
+
+        # 유효성 검사
+        if len(blogs_url) != len(file_names) or self.blogs_url.text() == '' or self.file_name.text() == '':
+            pyautogui.alert("빈칸 혹은 파일 이름을 모두 입력해주세요.")
+            return 0
+        else:
+            path = QFileDialog.getExistingDirectory(self, self.tr("Open Data files"), "./", QFileDialog.ShowDirsOnly)
+            if path == '':
+                pyautogui.alert("저장할 경로를 설정해주세요.")
+            else:
+                self.generate_post(blogs_url, path, file_names)
+
+
+    def generate_post(self, blogs_url, path, file_names):
+
+        self.status.append("생성중...")
+        QApplication.processEvents()
+
+        # 크롬 드라이버 자동 업데이트
+        from webdriver_manager.chrome import ChromeDriverManager
+
+        # 브라우저 꺼짐 방지
+        chrome_options = Options()
+        chrome_options.add_experimental_option("detach", True)
+        
+
+        # 불필요한 에러 메시지 없애기
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
+
+        service = Service(executable_path=ChromeDriverManager().install())
+
+
+        # 블로그들 리스트 불러오기
+        complete = 0
+
+        for blog_url in blogs_url:
+
+            # 웹페이지 해당 주소 이동
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            driver.implicitly_wait(5)
+            driver.maximize_window()
+            driver.get(blog_url)
+
+            # iframe 안에 들어가기
+            driver.switch_to.frame("mainFrame")
+
+            # 본문 태그 찾아내기
+            posts = driver.find_elements(By.CSS_SELECTOR, ".se-text-paragraph")
+
+
+            # 블로그 본문 담을 변수 생성
+            post_list = []
+
+            for post in posts:
+                # 줄바꿈 제거
+                post_list.append(post.text.replace("\n", ""))
+
+            while 1:
+                if '' in post_list:
+                    post_list.remove('')
+                else:
+                    break
+        
+            # 제목 제거
+            del post_list[0]
+
+            driver.quit()
+
+            self.status.append("본문 수집 완료")
+            QApplication.processEvents() 
+
+            try:
+
+                # 변경사항
+                openai.api_key = "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"
+
+                index = 0
+                mox = len(post_list) // 4
+
+                
+
+                f = open(rf"{path}\{file_names[complete]}.txt", 'w')
+
+                self.status.append("챗GPT로 본문 생성중...")
+                QApplication.processEvents()
+
+                self.status.append("하나당 약 3분 정도 소요됩니다.")
+                QApplication.processEvents()
+
+                for i in range(4):
+                    messages = []
+                    if i == 3:
+                        prompt = ''.join(post_list[index:])
+                        messages.append({"role": "user", "content": f"{prompt} \n 위 글을 재구성해줘"})
+                        completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=messages)
+                        assistant_content = completion.choices[0].message["content"].strip()
+                        f.write(f"{assistant_content}\n")
+                        break
+                    prompt = ''.join(post_list[index : index + mox])
+                    index = index + mox + 1
+                    messages.append({"role": "user", "content": f"{prompt} \n 위 글을 재구성해줘"})
+                    completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=messages)
+                    assistant_content = completion.choices[0].message["content"].strip()
+                    f.write(f"{assistant_content}\n")
+
+                self.status.append(f"{complete + 1}개 저장 완료...")
+                self.status.append("")
+                QApplication.processEvents()
+
+
+                f.close()
+
+
+                # 글자수세기
+
+                f = open(rf"{path}\{file_names[complete]}.txt")
+                s = f.read()
+                count = 0
+                for i in s:
+                    if i == " " or i == "\n":
+                        continue
+                    else:
+                        count += 1
+
+                self.textBrowser.append(f"{file_names[complete]} : {count}자")
+                QApplication.processEvents()
+
+                complete += 1
+            except:
+                self.status.append("\n *본문 생성 중 에러가 발생하였습니다.\n네이버 블로그와 인터넷 연결 상태를 확인하세요.*")
+                return
+
+        self.status.append("모든 자동화 프로그램 완료.")
+        QApplication.processEvents()
+        
+
+        return
+    
+    def reset(self):
+        self.blogs_url.setText("")
+        self.file_name.setText("")
+        self.status.setText("")
+        self.textBrowser.setText("")
+
+    def close(self):
+        sys.exit()
+
+
+class first(QMainWindow):
+    def __init__(self):
+        QMainWindow.__init__(self, None)
+        uic.loadUi(os.path.join(BASE_DIR, UI_PATH), self)
+
+        # 1) 버튼 클릭 이벤트
+        # self.객체이름.clicked.connect(self.실행함수이름)
+        self.login_btn.clicked.connect(self.login_start)
+        self.close_btn.clicked.connect(self.close)
+
+    def login_start(self):
+        
+        # 로그인 접속 아이디와 유효기간 변수 불러오기
+        global login_dict
+
+        input_id = self.id.text()
+        input_pw = self.pw.text()
+
+        now = datetime.now()
+
+        if input_id in login_dict.keys():
+            if input_pw == login_dict[input_id]:
+                pyautogui.alert("로그인 성공")
+                self.hide()
+                # 두번째 창 연결
+                mainwindow = second()
+                mainwindow.exec_()
+            else:
+                pyautogui.alert("로그인 실패")
+        else:
+            pyautogui.alert("로그인 실패")
+
+    def close(self):
+        sys.exit()
+        
+
+
+
+QApplication.setStyle("fusion")
+app = QApplication(sys.argv)
+sub_windoww = first()
+sub_windoww.show()
+
+sys.exit(app.exec_())
+
+
+
